@@ -296,59 +296,57 @@ class SlurmCliMetadataCollector(SchedulerMetadataCollector):
             f"no Slurm accounting record found for job {job_id} via sacct or scontrol"
         )
 
+    def _build_job_metadata(
+        self, job_id: JobIdentifier, record: Mapping[str, object]
+    ) -> SlurmJobMetadata:
+        """Build a ``SlurmJobMetadata`` from a single ``sacct``/``scontrol --json`` job record."""
+        time_info = record.get("time")
+        time_info = time_info if isinstance(time_info, Mapping) else {}
 
-def _build_job_metadata(
-    self, job_id: JobIdentifier, record: Mapping[str, object], run: CommandRunner
-) -> SlurmJobMetadata:
-    """Build a ``SlurmJobMetadata`` from a single ``sacct``/``scontrol --json``
-    job record. Shared by ``SlurmCliMetadataCollector`` and
-    ``SlurmJobDiscoveryCollector``.
-    """
-    time_info = record.get("time")
-    time_info = time_info if isinstance(time_info, Mapping) else {}
+        node_list = _expand_hostlist(str(record.get("nodes") or ""), self._run)
 
-    node_list = _expand_hostlist(str(record.get("nodes") or ""), self.run)
+        allocation = ResourceAllocation(
+            num_nodes=_int_or(
+                record.get("node_count")
+                or record.get("allocation_nodes")
+                or _tres_count(record, "node"),
+                len(node_list) or 1,
+            ),
+            num_tasks=_int_or(record.get("tasks") or record.get("ntasks"), 1),
+            cpus_per_task=_int_or(record.get("cpus_per_task"), _derive_cpus_per_task(record)),
+            node_list=node_list,
+            partition=str(record.get("partition") or ""),
+            gpus_per_node=_extract_gpu_count(record),
+        )
 
-    allocation = ResourceAllocation(
-        num_nodes=_int_or(
-            record.get("node_count")
-            or record.get("allocation_nodes")
-            or _tres_count(record, "node"),
-            len(node_list) or 1,
-        ),
-        num_tasks=_int_or(record.get("tasks") or record.get("ntasks"), 1),
-        cpus_per_task=_int_or(record.get("cpus_per_task"), _derive_cpus_per_task(record)),
-        node_list=node_list,
-        partition=str(record.get("partition") or ""),
-        gpus_per_node=_extract_gpu_count(record),
-    )
+        execution_window = JobExecutionWindow(
+            submitted_at=_epoch_to_datetime(
+                time_info.get("submission") or record.get("submit_time")
+            ),
+            started_at=_epoch_to_datetime(time_info.get("start") or record.get("start_time")),
+            finished_at=_epoch_to_datetime(time_info.get("end") or record.get("end_time")),
+        )
 
-    execution_window = JobExecutionWindow(
-        submitted_at=_epoch_to_datetime(time_info.get("submission") or record.get("submit_time")),
-        started_at=_epoch_to_datetime(time_info.get("start") or record.get("start_time")),
-        finished_at=_epoch_to_datetime(time_info.get("end") or record.get("end_time")),
-    )
+        working_directory = (
+            record.get("working_directory")
+            or record.get("current_working_directory")
+            or record.get("work_dir")
+            or "."
+        )
 
-    working_directory = (
-        record.get("working_directory")
-        or record.get("current_working_directory")
-        or record.get("work_dir")
-        or "."
-    )
-
-    return SlurmJobMetadata(
-        job_id=job_id,
-        job_name=str(record.get("name") or record.get("job_name") or ""),
-        user_name=str(record.get("user") or record.get("user_name") or ""),
-        account=_optional_str(record.get("account")),
-        state=_map_job_state(_extract_state(record)),
-        exit_code=_extract_exit_code(record),
-        working_directory=Path(str(working_directory)),
-        submit_command=_extract_submit_command(record),
-        environment={},
-        allocation=allocation,
-        execution_window=execution_window,
-    )
+        return SlurmJobMetadata(
+            job_id=job_id,
+            job_name=str(record.get("name") or record.get("job_name") or ""),
+            user_name=str(record.get("user") or record.get("user_name") or ""),
+            account=_optional_str(record.get("account")),
+            state=_map_job_state(_extract_state(record)),
+            exit_code=_extract_exit_code(record),
+            working_directory=Path(str(working_directory)),
+            submit_command=_extract_submit_command(record),
+            environment={},
+            allocation=allocation,
+            execution_window=execution_window,
+        )
 
 
 # --------------------------------------------------------------------------
