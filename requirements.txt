@@ -1,0 +1,16 @@
+# Runtime dependencies for hpc-provenance.
+# Kept in sync with [project.dependencies] in pyproject.toml.
+
+# --- application / config ---
+pydantic>=2.7
+pydantic-settings>=2.2
+
+# --- presentation ---
+typer>=0.12
+
+# --- infrastructure: git metadata collection ---
+GitPython>=3.1
+
+# --- infrastructure: DSSE signing / verification ---
+cryptography>=42.0
+in-toto-attestation>=0.1

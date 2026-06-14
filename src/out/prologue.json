@@ -1,0 +1,16 @@
+{
+  "jobId": "slurm:123456",
+  "jobName": "",
+  "user": "DELL",
+  "partition": "gpu",
+  "nodeList": [
+    "node01"
+  ],
+  "submitDir": "C:\\Users\\DELL\\Downloads\\HPC_AI_BOMs\\src",
+  "git": {
+    "remoteUrl": "https://github.com/pranjalthakur25/HPC.git",
+    "branch": "dev",
+    "commit": "855736e51a3e31bd44800fcab16e14ceb3be456d",
+    "isDirty": true
+  }
+}

@@ -1,0 +1,58 @@
+[project]
+name = "hpc-provenance"
+version = "0.1.0"
+description = "SLSA-inspired provenance generation and verification for HPC (Slurm) workloads"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Pranjal" }
+]
+
+# NOTE: Dependencies below describe the *intended* adapter implementations.
+# This is a design-only skeleton; nothing is implemented yet, so most of
+# these are not yet imported anywhere in the codebase.
+dependencies = [
+    # --- application / config ---
+    "pydantic>=2.7",            # DTO & settings validation (config layer only)
+    "pydantic-settings>=2.2",   # environment-driven configuration
+    # --- presentation ---
+    "typer>=0.12",              # CLI framework
+    # --- infrastructure: git metadata collection ---
+    "GitPython>=3.1",
+    # --- infrastructure: DSSE signing / verification ---
+    "cryptography>=42.0",
+    "in-toto-attestation>=0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+hpc-provenance = "hpc_provenance.presentation.cli.app:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["hpc_provenance"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
