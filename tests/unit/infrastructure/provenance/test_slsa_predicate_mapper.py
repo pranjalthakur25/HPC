@@ -19,6 +19,7 @@ from hpc_provenance.domain.models.provenance import (
 )
 from hpc_provenance.domain.models.provenance_context import ProvenanceContext
 from hpc_provenance.domain.models.provenance_metadata import BuildMetadata
+from hpc_provenance.domain.models.scheduler_metadata import ResourceUsage
 from hpc_provenance.infrastructure.provenance.slsa_predicate_mapper import (
     build_definition_from_context,
     build_definition_to_dict,
@@ -117,6 +118,39 @@ def test_build_definition_from_context_without_git_metadata(
 
     assert len(build_definition.resolved_dependencies) == 1
     assert build_definition.resolved_dependencies[0].name == "train.py"
+
+
+def test_build_definition_from_context_omits_resource_usage_when_absent(
+    sample_provenance_context: ProvenanceContext,
+) -> None:
+    build_definition = build_definition_from_context(sample_provenance_context)
+
+    assert "resourceUsage" not in build_definition.internal_parameters
+
+
+def test_build_definition_from_context_includes_resource_usage(
+    sample_provenance_context: ProvenanceContext,
+) -> None:
+    job_metadata = sample_provenance_context.job_metadata
+    job_metadata_with_usage = dataclasses.replace(
+        job_metadata,
+        resource_usage=ResourceUsage(
+            elapsed_seconds=3600.0,
+            cpu_time_seconds=28800.0,
+            max_rss_bytes=2147483648,
+            max_vm_size_bytes=4294967296,
+        ),
+    )
+    context = dataclasses.replace(sample_provenance_context, job_metadata=job_metadata_with_usage)
+
+    build_definition = build_definition_from_context(context)
+
+    assert build_definition.internal_parameters["resourceUsage"] == {
+        "elapsedSeconds": 3600.0,
+        "cpuTimeSeconds": 28800.0,
+        "maxRssBytes": 2147483648,
+        "maxVmSizeBytes": 4294967296,
+    }
 
 
 def test_build_definition_from_context_rejects_unsupported_scheduler(

@@ -11,6 +11,7 @@ import pytest
 
 from hpc_provenance.domain.enums import JobState, SchedulerType
 from hpc_provenance.domain.exceptions import MetadataCollectionError
+from hpc_provenance.domain.models.scheduler_metadata import ResourceUsage
 from hpc_provenance.domain.value_objects import JobIdentifier
 from hpc_provenance.infrastructure.collectors.slurm_collector import SlurmCliMetadataCollector
 
@@ -36,6 +37,8 @@ SACCT_PAYLOAD = {
                 "submission": 1750000000,
                 "start": 1750000100,
                 "end": 1750000600,
+                "elapsed": 500,
+                "total_cpu": {"seconds": 3600, "microseconds": 500000},
             },
             "tres": {
                 "allocated": [
@@ -44,6 +47,16 @@ SACCT_PAYLOAD = {
                     {"type": "gres", "name": "gpu", "id": 1001, "count": 4},
                 ]
             },
+            "steps": [
+                {
+                    "tres": {
+                        "consumed": [
+                            {"type": "mem", "count": 2147483648},
+                            {"type": "vmem", "count": 4294967296},
+                        ]
+                    }
+                }
+            ],
             "submit_line": "sbatch train.slurm --epochs 10",
         }
     ]
@@ -114,6 +127,12 @@ def test_collect_parses_sacct_json() -> None:
     assert metadata.execution_window.finished_at == datetime.fromtimestamp(
         1750000600, tz=timezone.utc
     )
+    assert metadata.resource_usage == ResourceUsage(
+        elapsed_seconds=500.0,
+        cpu_time_seconds=3600.5,
+        max_rss_bytes=2147483648,
+        max_vm_size_bytes=4294967296,
+    )
 
 
 def test_collect_falls_back_to_scontrol_when_sacct_unavailable() -> None:
@@ -140,6 +159,7 @@ def test_collect_falls_back_to_scontrol_when_sacct_unavailable() -> None:
     assert metadata.allocation.cpus_per_task == 4
     assert metadata.submit_command == ("/scratch/asmith/run/job.sh",)
     assert metadata.execution_window.finished_at is None
+    assert metadata.resource_usage is None
 
 
 def test_collect_resolves_job_id_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:

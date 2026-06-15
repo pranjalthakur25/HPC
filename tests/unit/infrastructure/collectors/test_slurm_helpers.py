@@ -8,14 +8,20 @@ import pytest
 
 from hpc_provenance.domain.enums import JobState
 from hpc_provenance.domain.exceptions import MetadataCollectionError
+from hpc_provenance.domain.models.scheduler_metadata import ResourceUsage
 from hpc_provenance.infrastructure.collectors.slurm_collector import (
+    _cpu_time_seconds,
     _epoch_to_datetime,
     _expand_hostlist,
     _expand_hostlist_fallback,
+    _extract_resource_usage,
     _int_or,
     _map_job_state,
+    _max_consumed_tres_bytes,
+    _non_negative_float,
     _parse_gpu_count,
     _run_command,
+    _seconds_with_microseconds,
 )
 
 
@@ -117,3 +123,100 @@ def test_map_job_state(raw: object, expected: JobState) -> None:
 def test_run_command_raises_for_missing_executable() -> None:
     with pytest.raises(MetadataCollectionError):
         _run_command(["definitely-not-a-real-slurm-command"])
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (5, 5.0),
+        (5.5, 5.5),
+        (0, 0.0),
+        (-1, None),
+        (True, None),
+        ("5", None),
+    ],
+)
+def test_non_negative_float(value: object, expected: float | None) -> None:
+    assert _non_negative_float(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"seconds": 10, "microseconds": 500000}, 10.5),
+        ({"seconds": 10}, 10.0),
+        ({}, None),
+        (None, None),
+        ("not-a-mapping", None),
+    ],
+)
+def test_seconds_with_microseconds(value: object, expected: float | None) -> None:
+    assert _seconds_with_microseconds(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("time_info", "expected"),
+    [
+        ({"total_cpu": {"seconds": 100, "microseconds": 0}}, 100.0),
+        ({"user": {"seconds": 60}, "system": {"seconds": 10}}, 70.0),
+        ({"user": {"seconds": 60}}, 60.0),
+        ({}, None),
+    ],
+)
+def test_cpu_time_seconds(time_info: dict, expected: float | None) -> None:
+    assert _cpu_time_seconds(time_info) == expected
+
+
+def test_max_consumed_tres_bytes_returns_max_across_steps() -> None:
+    record = {
+        "steps": [
+            {"tres": {"consumed": [{"type": "mem", "count": 1024}]}},
+            {"tres": {"consumed": [{"type": "mem", "count": 2048}]}},
+        ]
+    }
+
+    assert _max_consumed_tres_bytes(record, "mem") == 2048
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {},
+        {"steps": []},
+        {"steps": [{"tres": {}}]},
+        {"steps": [{"tres": {"consumed": [{"type": "vmem", "count": 1024}]}}]},
+    ],
+)
+def test_max_consumed_tres_bytes_returns_none_when_absent(record: dict) -> None:
+    assert _max_consumed_tres_bytes(record, "mem") is None
+
+
+def test_extract_resource_usage_parses_full_record() -> None:
+    record = {
+        "time": {
+            "elapsed": 500,
+            "total_cpu": {"seconds": 3600, "microseconds": 500000},
+        },
+        "steps": [
+            {
+                "tres": {
+                    "consumed": [
+                        {"type": "mem", "count": 2147483648},
+                        {"type": "vmem", "count": 4294967296},
+                    ]
+                }
+            }
+        ],
+    }
+
+    assert _extract_resource_usage(record) == ResourceUsage(
+        elapsed_seconds=500.0,
+        cpu_time_seconds=3600.5,
+        max_rss_bytes=2147483648,
+        max_vm_size_bytes=4294967296,
+    )
+
+
+def test_extract_resource_usage_returns_none_when_absent() -> None:
+    assert _extract_resource_usage({}) is None

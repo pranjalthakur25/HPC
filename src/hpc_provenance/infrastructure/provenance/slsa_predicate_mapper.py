@@ -41,16 +41,36 @@ from hpc_provenance.domain.models.provenance import (
 )
 from hpc_provenance.domain.models.provenance_context import ProvenanceContext
 from hpc_provenance.domain.models.provenance_metadata import BuildMetadata
-from hpc_provenance.domain.models.scheduler_metadata import SlurmJobMetadata
+from hpc_provenance.domain.models.scheduler_metadata import ResourceUsage, SlurmJobMetadata
 
 # ---------------------------------------------------------------------------
 # Context -> predicate components
 # ---------------------------------------------------------------------------
 
 
+def _resource_usage_to_dict(usage: ResourceUsage | None) -> dict[str, object] | None:
+    """Map a ``ResourceUsage`` to its ``internalParameters.resourceUsage`` JSON shape.
+
+    Fields that are ``None`` are omitted; returns ``None`` if no fields are set.
+    """
+    if usage is None:
+        return None
+
+    result: dict[str, object] = {}
+    if usage.elapsed_seconds is not None:
+        result["elapsedSeconds"] = usage.elapsed_seconds
+    if usage.cpu_time_seconds is not None:
+        result["cpuTimeSeconds"] = usage.cpu_time_seconds
+    if usage.max_rss_bytes is not None:
+        result["maxRssBytes"] = usage.max_rss_bytes
+    if usage.max_vm_size_bytes is not None:
+        result["maxVmSizeBytes"] = usage.max_vm_size_bytes
+    return result or None
+
+
 def _slurm_internal_parameters(job_metadata: SlurmJobMetadata) -> dict[str, object]:
     allocation = job_metadata.allocation
-    return {
+    parameters: dict[str, object] = {
         "scheduler": SchedulerType.SLURM.value,
         "jobId": str(job_metadata.job_id),
         "jobName": job_metadata.job_name,
@@ -65,6 +85,10 @@ def _slurm_internal_parameters(job_metadata: SlurmJobMetadata) -> dict[str, obje
         "gpusPerNode": allocation.gpus_per_node,
         "nodeList": list(allocation.node_list),
     }
+    resource_usage = _resource_usage_to_dict(job_metadata.resource_usage)
+    if resource_usage is not None:
+        parameters["resourceUsage"] = resource_usage
+    return parameters
 
 
 _BUILD_TYPES: dict[SchedulerType, str] = {

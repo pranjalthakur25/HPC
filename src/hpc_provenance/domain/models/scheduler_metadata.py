@@ -39,6 +39,22 @@ class JobExecutionWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceUsage:
+    """Runtime resource-usage metrics for a completed job, as reported by
+    ``sacct``.
+
+    All fields are ``None`` when the underlying accounting data was not
+    available (e.g. cgroup accounting disabled, or the job was collected via
+    ``scontrol`` rather than ``sacct``).
+    """
+
+    elapsed_seconds: float | None = None
+    cpu_time_seconds: float | None = None
+    max_rss_bytes: int | None = None
+    max_vm_size_bytes: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SlurmJobMetadata:
     """Everything the system knows about a job from the scheduler's
     perspective. Feeds the ``BuilderIdentity``/``RunDetails`` portion of the
@@ -56,3 +72,4 @@ class SlurmJobMetadata:
     environment: Mapping[str, str]
     allocation: ResourceAllocation
     execution_window: JobExecutionWindow
+    resource_usage: ResourceUsage | None = None

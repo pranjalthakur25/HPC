@@ -17,6 +17,7 @@ from hpc_provenance.domain.interfaces.collectors import SchedulerMetadataCollect
 from hpc_provenance.domain.models.scheduler_metadata import (
     JobExecutionWindow,
     ResourceAllocation,
+    ResourceUsage,
     SlurmJobMetadata,
 )
 from hpc_provenance.domain.value_objects import JobIdentifier
@@ -346,6 +347,7 @@ class SlurmCliMetadataCollector(SchedulerMetadataCollector):
             environment={},
             allocation=allocation,
             execution_window=execution_window,
+            resource_usage=_extract_resource_usage(record),
         )
 
 
@@ -438,6 +440,77 @@ def _extract_exit_code(record: Mapping[str, object]) -> int | None:
             elif isinstance(return_code, int):
                 return return_code
     return None
+
+
+def _non_negative_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value >= 0 else None
+
+
+def _seconds_with_microseconds(value: object) -> float | None:
+    """Parse a Slurm ``{"seconds": int, "microseconds": int}`` duration."""
+    if not isinstance(value, Mapping):
+        return None
+    seconds = _non_negative_float(value.get("seconds"))
+    if seconds is None:
+        return None
+    microseconds = _non_negative_float(value.get("microseconds")) or 0.0
+    return seconds + microseconds / 1_000_000
+
+
+def _cpu_time_seconds(time_info: Mapping[str, object]) -> float | None:
+    """Total CPU time consumed, from ``time.total_cpu`` or ``time.user`` + ``time.system``."""
+    total = _seconds_with_microseconds(time_info.get("total_cpu"))
+    if total is not None:
+        return total
+
+    user = _seconds_with_microseconds(time_info.get("user"))
+    system = _seconds_with_microseconds(time_info.get("system"))
+    if user is None and system is None:
+        return None
+    return (user or 0.0) + (system or 0.0)
+
+
+def _max_consumed_tres_bytes(record: Mapping[str, object], tres_type: str) -> int | None:
+    """Maximum ``count`` for a consumed TRES type (e.g. ``mem``, ``vmem``) across job steps."""
+    steps = record.get("steps")
+    if not isinstance(steps, list):
+        return None
+
+    values: list[int] = []
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        tres = step.get("tres")
+        if not isinstance(tres, Mapping):
+            continue
+        for item in tres.get("consumed", []) or []:
+            if isinstance(item, Mapping) and item.get("type") == tres_type:
+                count = item.get("count")
+                if isinstance(count, int):
+                    values.append(count)
+    return max(values) if values else None
+
+
+def _extract_resource_usage(record: Mapping[str, object]) -> ResourceUsage | None:
+    """Build a ``ResourceUsage`` from a ``sacct --json`` job record's ``time``/``steps``.
+
+    Returns ``None`` if none of the underlying fields are present (e.g. the
+    record came from ``scontrol show job`` rather than ``sacct``).
+    """
+    time_info = record.get("time")
+    time_info = time_info if isinstance(time_info, Mapping) else {}
+
+    usage = ResourceUsage(
+        elapsed_seconds=_non_negative_float(time_info.get("elapsed")),
+        cpu_time_seconds=_cpu_time_seconds(time_info),
+        max_rss_bytes=_max_consumed_tres_bytes(record, "mem"),
+        max_vm_size_bytes=_max_consumed_tres_bytes(record, "vmem"),
+    )
+    if usage == ResourceUsage():
+        return None
+    return usage
 
 
 def _extract_submit_command(record: Mapping[str, object]) -> tuple[str, ...]:
